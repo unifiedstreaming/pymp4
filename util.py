@@ -17,7 +17,7 @@
 """
 import logging
 
-from pymp4.exceptions import BoxNotFound
+from app.application.parsers.pymp4.exceptions import BoxNotFound
 
 log = logging.getLogger(__name__)
 
@@ -43,6 +43,16 @@ class BoxUtil(object):
             for i, box in enumerate(box.children):
                 if box.type == type_:
                     return i
+
+    @classmethod
+    def find_all_in_box_list(cls, boxes, type_):
+        for box in boxes:
+            if box.type == type_:
+                yield box
+            elif hasattr(box, "children"):
+                for sbox in box.children:
+                    for fbox in cls.find(sbox, type_):
+                        yield fbox
 
     @classmethod
     def find(cls, box, type_):
