@@ -29,6 +29,11 @@ log = logging.getLogger(__name__)
 UNITY_MATRIX = [0x10000, 0, 0, 0, 0x10000, 0, 0, 0, 0x40000000]
 
 class BoxType(PythonEnum):
+    """
+    This Enum class contains all the possible types supported by this parser
+    for the "Box" structure, which represents the foundation of how an MP4
+    is represented.
+    """
     FTYP = b"ftyp"
     STYP = b"styp"
     MVHD = b"mvhd"
