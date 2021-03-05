@@ -45,16 +45,6 @@ class BoxUtil(object):
                     return i
 
     @classmethod
-    def find_all_in_box_list(cls, boxes, type_):
-        for box in boxes:
-            if box.type == type_:
-                yield box
-            elif hasattr(box, "children"):
-                for sbox in box.children:
-                    for fbox in cls.find(sbox, type_):
-                        yield fbox
-
-    @classmethod
     def find(cls, box, type_):
         if box.type == type_:
             yield box
