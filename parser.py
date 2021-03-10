@@ -87,6 +87,7 @@ class BoxType(PythonEnum):
     ABST = b'abst'
     ASRT = b'asrt'
     AFRT = b'afrt'
+    ELNG = b'elng'
 
 
 class PrefixedIncludingSize(Subconstruct):
@@ -492,6 +493,13 @@ SampleDescriptionBox = Struct(
     "entries" / PrefixedArray(Int32ub, SampleEntryBox)
 )
 
+ExtendedLanguageTag = Struct(
+    "type" / Const(b"elng"),
+    "version" / Default(Int8ub, 0),
+    "flags" / Const(Int24ub, 0),
+    "extended_language" / CString(encoding="utf8")
+)
+
 SampleSizeBox = Struct(
     "type" / Const(b"stsz"),
     "version" / Int8ub,
@@ -800,7 +808,7 @@ SchemeTypeBox = Struct(
     "flags" / Default(Int24ub, 0),
     "scheme_type" / Default(String(4), b"cenc"),
     "scheme_version" / Default(Int32ub, 0x00010000),
-    "schema_uri" / Default(If(this.flags & 1 == 1, CString()), None)
+    "schema_uri" / Default(If(this.flags & 1 == 1, CString(encoding="utf8")), None)
 )
 
 ProtectionSchemeInformationBox = Struct(
