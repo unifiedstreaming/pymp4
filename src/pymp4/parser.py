@@ -24,6 +24,8 @@ from construct.lib import *
 # Enum is a construct class. Will clash with python's Enum
 from enum import Enum as PythonEnum
 
+from pymp4.util import BoxUtil
+
 log = logging.getLogger(__name__)
 
 UNITY_MATRIX = [0x10000, 0, 0, 0, 0x10000, 0, 0, 0, 0x40000000]
@@ -50,6 +52,8 @@ class BoxType(PythonEnum):
     TRAK = b"trak"
     MDIA = b"mdia"
     TKHD = b"tkhd"
+    ELST = b"elst"
+    EDTS = b"edts"
     MDAT = b"mdat"
     FREE = b"free"
     SKIP = b"skip"
@@ -68,11 +72,16 @@ class BoxType(PythonEnum):
     STSC = b"stsc"
     STCO = b"stco"
     CO64 = b"co64"
+    CTTS = b"ctts"
     SMHD = b"smhd"
     SIDX = b"sidx"
     SAIZ = b"saiz"
     SAIO = b"saio"
     BTRT = b"btrt"
+    META = b"meta"
+    IPRO = b"ipro"
+    PITM = b"pitm"
+    PRFT = b"prft"
     # dash # dash
     TENC = b"tenc"
     PSSH = b"pssh"
@@ -88,7 +97,34 @@ class BoxType(PythonEnum):
     ASRT = b'asrt'
     AFRT = b'afrt'
     ELNG = b'elng'
+    # Event Message Track
+    EMSG = b"emsg"
+    EMBE = b"embe"
+    EMEB = b"emeb"
+    EMIB = b"emib"
+    EVTE = b"evte"
+    URIM = b"urim"
+    URI_ = b"uri "
+    URI = b"uri"
+    URII = b"uriI"
 
+    ## timed text subtitle
+    VTTC = b"vttC"
+    VLAB = b"vlab"
+    STHD = b'sthd'
+    NMHD = b'nmhd'
+
+    ##VTT internal
+    VTTc = b'vttc' 
+    VSID = b'vsid'
+    CTIM = b'ctim'
+    IDEN = b'iden'
+    STTG = b'sttg'
+    PAY1 = b'pay1'
+    VTTE = b'vtte'
+    VTTA = b'vtta' 
+    
+ContainerBoxLazy = LazyBound(lambda ctx: ContainerBox)    
 
 class PrefixedIncludingSize(Subconstruct):
     __slots__ = ["name", "lengthfield", "subcon"]
@@ -144,6 +180,59 @@ class PrefixedIncludingSize(Subconstruct):
         return self.lengthfield._sizeof(context, path) + self.subcon._sizeof(context, path)
 
 
+# MetaDataSampleEntry
+
+URIBox = Struct(
+    "type" / Const(b'uri '),
+    "version" / Default(Int8ub, 0),
+    "flags" / Default(Int24ub, 0),
+    "theURI" / CString()
+)
+
+
+URIInitBox = Struct(
+    "type" / Const(b"uriI"),
+    "version" / Default(Int8ub, 0),
+    "flags" / Default(Int24ub, 0),
+    "uri_initialization_data" / GreedyBytes
+)
+
+EditBox = Struct(
+    "type" / Const(b"edts"),
+    "children" / LazyBound(lambda _: GreedyRange(Box))
+)
+
+EventMessageSampleEntry = Struct(
+    "children" / LazyBound(lambda _: GreedyRange(Box))
+)
+
+URIMetaSampleEntry = Struct(
+    "children" / LazyBound(lambda _: GreedyRange(Box))
+)
+
+XMLSubtitleSampleEntry = Struct(
+    "namespace" / CString(encoding="utf8")
+    ##"theURI" / CString(encoding="utf8")
+)
+
+WebVTTConfigurationBox = Struct(
+    "type" / Const(b'vttC'),
+    "config" / Default(GreedyBytes, b"")
+)
+
+WebVTTSourceLabelBox = Struct(
+    "type" / Const(b'vlab') ,
+    "source_label" / Default(GreedyBytes, b"")
+)
+
+WVTTSampleEntry = Struct(
+    "children" / LazyBound(lambda _: GreedyRange(Box))
+)
+
+URIMetaSampleEntry = Struct(
+    "children" / LazyBound(lambda _: GreedyRange(Box))
+)
+
 # Header box
 
 FileTypeBox = Struct(
@@ -175,6 +264,18 @@ FreeBox = Struct(
 SkipBox = Struct(
     "type" / Const(b"skip"),
     "data" / GreedyBytes
+)
+
+NullMediaHeaderBox = Struct(
+    "type" / Const(b"nmhd"),
+    "version" / Default(Int8ub, 0),
+    "flags" / Default(Int24ub, 0)
+)
+
+SubtitleMediaHeaderBox = Struct(
+    "type" / Const(b"sthd"),
+    "version" / Default(Int8ub, 0),
+    "flags" / Default(Int24ub, 0)
 )
 
 # Movie boxes, contained in a moov Box
@@ -292,6 +393,48 @@ HDSFragmentRunBox = Struct(
     ))
 )
 
+EditListBox = Struct(
+    "type" / Const(b"elst"),
+    "version" / Default(Int8ub, 0),
+    "flags" / Const(Int24ub, 0),
+    Embedded(Switch(this.version, {
+        0: Struct( "entries" / PrefixedArray(Int32ub, Struct(
+        "edit_duration" / Int32ub,
+        "media_time" / Int32sb,
+        "media_rate_integer" /  Int16sb,
+        "media_rate_fraction" / Int16sb,
+        ))),
+        1: Struct( "entries" / PrefixedArray(Int32ub, Struct(
+        "edit_duration" / Int64ub,
+        "media_time" / Int64ub,
+        "media_rate_integer" /  Int16sb,
+        "media_rate_fraction" / Int16sb,
+        ))
+        ),
+    })),
+ 
+)
+
+CompositionOffsetBox = Struct(
+    "type" / Const(b"ctts"),
+    "version" / Default(Int8ub, 0),
+    "flags" / Const(Int24ub, 0),
+    Embedded(Switch(this.version, {
+        0: Struct( "entries" / PrefixedArray(Int32ub, Struct(
+        "sample_count" / Int32ub,
+        "sampe_offest" / Int32ub,
+        ))),
+        1: Struct( "entries" / PrefixedArray(Int32ub, Struct(
+        "sample_count" / Int32ub,
+        "sample_offset" / Int32sb,
+        ))
+        ),
+    })),
+    "media_rate_integer" / Int16sb,
+    "media_rate_fraction" / Int16sb,
+)
+
+    
 
 # Boxes contained by Media Box
 
@@ -463,7 +606,7 @@ AVC1SampleEntryBox = Struct(
             b"hvcC": HVCC,
         }, Struct("data" / GreedyBytes)))
     )),
-    "sample_info" / LazyBound(lambda _: GreedyRange(Box))
+    "children" / LazyBound(lambda _: GreedyRange(Box))
 )
 
 SampleEntryBox = PrefixedIncludingSize(Int32ub, Struct(
@@ -475,15 +618,21 @@ SampleEntryBox = PrefixedIncludingSize(Int32ub, Struct(
         b"mp4a": MP4ASampleEntryBox,
         b"enca": MP4ASampleEntryBox,
         b"avc1": AVC1SampleEntryBox,
-        b"encv": AVC1SampleEntryBox
+        b"encv": AVC1SampleEntryBox,
+        b"evte": EventMessageSampleEntry,
+        b"urim": URIMetaSampleEntry, 
+        b"stpp": XMLSubtitleSampleEntry, 
+        b"wvtt": WVTTSampleEntry,
     }, Struct("data" / GreedyBytes)))
 ))
+
+
 
 BitRateBox = Struct(
     "type" / Const(b"btrt"),
     "bufferSizeDB" / Int32ub,
     "maxBitrate" / Int32ub,
-    "avgBirate" / Int32ub,
+    "avgBitrate" / Int32ub,
 )
 
 SampleDescriptionBox = Struct(
@@ -577,10 +726,49 @@ ChunkLargeOffsetBox = Struct(
 
 # Movie Fragment boxes, contained in moof box
 
+MetaBox = Struct(
+    "type" / Const(b"meta"),
+    "version" / Const(Int8ub, 0),
+     Padding(3, pattern=b"\x00"),
+    "children" / LazyBound(lambda _: GreedyRange(Box))
+)
+
+PrimaryItemBox = Struct(
+    "type" / Const(b"pitm"),
+    "version" / Default(Int8ub, 0),
+    "flags" / Const(Int24ub, 0),
+    Embedded(Switch(this.version, {
+        0: Struct("item_ID" / Int16ub),
+        1: Struct("item_ID" / Int32ub),
+    })),
+)
+
+ItemProtectionBox = Struct(
+    "type" / Const(b"ipro"),
+    "version" / Const(Int8ub, 0),
+    "flags" / Const(Int24ub, 0),
+    "protection_count" / Int16ub,
+    "protection_information" / LazyBound(lambda _: GreedyRange(Box))
+)
+
+ProducerReferenceTimeBox = Struct(
+    "type" / Const(b"prft"),
+    "version" / Default(Int8ub, 0),
+    Padding(3, pattern=b"\x00"),
+    "reference_track_ID" / Int32ub, 
+    "ntp_timestamp" / Int64ub,
+    Embedded(Switch(this.version, {
+        0: Struct( "media_time" / Int32ub),
+        1: Struct( "media_time" / Int64ub),
+    })),
+)
+
+# Movie Fragment boxes, contained in moof box
+
 MovieFragmentHeaderBox = Struct(
     "type" / Const(b"mfhd"),
     "version" / Const(Int8ub, 0),
-    "flags" / Const(Int24ub, 0),
+     "flags" / Const(Int24ub, 0),
     "sequence_number" / Int32ub
 )
 
@@ -602,6 +790,7 @@ TrackSampleFlags = BitStruct(
     "sample_degradation_priority" / Default(BitsInteger(16), 0),
 )
 
+
 TrackRunBox = Struct(
     "type" / Const(b"trun"),
     "version" / Int8ub,
@@ -618,7 +807,7 @@ TrackRunBox = Struct(
     ),
     "sample_count" / Int32ub,
     "data_offset" / Default(If(this.flags.data_offset_present, Int32sb), None),
-    "first_sample_flags" / Default(If(this.flags.first_sample_flags_present, Int32ub), None),
+    "first_sample_flags" / Default(If(this.flags.first_sample_flags_present, TrackSampleFlags), None),
     "sample_info" / Array(this.sample_count, Struct(
         "sample_duration" / If(this._.flags.sample_duration_present, Int32ub),
         "sample_size" / If(this._.flags.sample_size_present, Int32ub),
@@ -751,7 +940,57 @@ class UUIDBytes(Adapter):
     def _encode(self, obj, context):
         return obj.bytes
 
+# event message boxes
+EventMessageInstanceBox = Struct(
+    "type" / Const(b"emib"),
+    "version" / Default(Int8ub, 0),
+    "flags" / Const(Int24ub, 0),
+    "reserved" / Default(Int32ub, 0),
+    "presentation_time_delta" / Int64sb,
+    "duration" / Int32ub,
+    "id" / Int32ub,
+    "scheme_id_uri" / CString(),
+    "value" / CString(), 
+    "message_data" / GreedyBytes,
+)
+    
 
+DASHEventMessageBox = Struct(
+    "type" / Const(b"emsg"),
+    "version" / Default(Int8ub, 0),
+    "flags" / Const(Int24ub, 0),
+    Embedded(Switch(this.version, {
+        0: Struct(
+            "scheme_id_uri" /  CString(),
+            "value" /  CString(), 
+            "timescale" / Default(Int32ub, 0),
+            "presentation_time_delta" / Default(Int32ub, 0),
+            "event_duration" / Int32ub,
+            "id" / Int32ub,
+        ),
+        1: Struct(
+            "timescale" / Default(Int32ub, 0),
+            "presentation_time" / Default(Int64ub, 0),
+            "event_duration" / Int32ub,
+            "id" / Int32ub,
+            "scheme_id_uri" /  CString(),
+            "value" /  CString(), 
+        ),
+    })),
+    "message_data" / GreedyBytes, 
+)
+
+
+
+EventMessageEmptyBox = Struct(
+     "type" / Const(b"emeb")
+)
+
+EventMessageBoxEmptyCue = Struct(
+     "type" / Const(b"embe")
+)
+
+# pssh boxes
 ProtectionSystemHeaderBox = Struct(
     "type" / If(this._.type != b"uuid", Const(b"pssh")),
     "version" / Rebuild(Int8ub, lambda ctx: 1 if (hasattr(ctx, "key_IDs") and ctx.key_IDs) else 0),
@@ -829,7 +1068,48 @@ UUIDBox = Struct(
     }, GreedyBytes)
 )
 
-ContainerBoxLazy = LazyBound(lambda ctx: ContainerBox)
+
+
+
+### webVTT Cue boxes (only for use in samples, this is not for use in ISO-BMFF)
+VTTCueBox = Struct(
+    "type" / Const(b'vttc'),
+    "children" / LazyBound(lambda _: GreedyRange(Box))
+)
+
+CueSourceIDBox = Struct( 
+    "type" / Const(b'vsid'), 
+    "source_ID" / Int32sb 
+)
+
+CueTimeBox = Struct(
+     "type"  / Const(b'ctim'),
+     "cue_current_time" / Default(GreedyBytes, b"")
+)
+
+CueIDBox = Struct(
+   "type" / Const(b'iden'),
+   "cue_id"/ Default(GreedyBytes, b"")
+)
+
+CueSettingsBox = Struct(
+     "type"/ Const(b'sttg'),
+     "settings"/ Default(GreedyBytes, b"")
+)
+
+CuePayLoadBox = Struct(
+     "type"/ Const(b'pay1'),
+     "cue_text"/  Default(GreedyBytes, b"")
+)
+
+VTTEmptyCueBox = Struct(
+     "type" / Const(b'vtte') 
+)
+
+VTTAdditionalTextBox = Struct(
+     "type" / Const(b'vtta'), 
+     "cue_additional_text" / Default(GreedyBytes, b"")
+)
 
 
 class TellMinusSizeOf(Subconstruct):
@@ -859,6 +1139,8 @@ Box = PrefixedIncludingSize(Int32ub, Struct(
         BoxType.MFHD.value: MovieFragmentHeaderBox,
         BoxType.TFDT.value: TrackFragmentBaseMediaDecodeTimeBox,
         BoxType.TRUN.value: TrackRunBox,
+        BoxType.EDTS.value: EditBox,
+        BoxType.ELST.value: EditListBox,
         BoxType.TFHD.value: TrackFragmentHeaderBox,
         BoxType.TRAF.value: ContainerBoxLazy,
         BoxType.MVEX.value: ContainerBoxLazy,
@@ -884,12 +1166,19 @@ Box = PrefixedIncludingSize(Int32ub, Struct(
         BoxType.STSS.value: SyncSampleBox,
         BoxType.STSC.value: SampleToChunkBox,
         BoxType.STCO.value: ChunkOffsetBox,
+        BoxType.CTTS.value: CompositionOffsetBox, 
         BoxType.CO64.value: ChunkLargeOffsetBox,
         BoxType.SMHD.value: SoundMediaHeaderBox,
         BoxType.SIDX.value: SegmentIndexBox,
         BoxType.SAIZ.value: SampleAuxiliaryInformationSizesBox,
         BoxType.SAIO.value: SampleAuxiliaryInformationOffsetsBox,
         BoxType.BTRT.value: BitRateBox,
+
+        # Meta boxes (for completeness)
+        BoxType.META.value: MetaBox,
+        BoxType.PITM.value: PrimaryItemBox,
+        BoxType.IPRO.value: ItemProtectionBox,
+        BoxType.PRFT.value: ProducerReferenceTimeBox,
         # dash
         BoxType.TENC.value: TrackEncryptionBox,
         BoxType.PSSH.value: ProtectionSystemHeaderBox,
@@ -903,7 +1192,33 @@ Box = PrefixedIncludingSize(Int32ub, Struct(
         # HDS boxes
         BoxType.ABST.value: HDSSegmentBox,
         BoxType.ASRT.value: HDSSegmentRunBox,
-        BoxType.AFRT.value: HDSFragmentRunBox
+        BoxType.AFRT.value: HDSFragmentRunBox,
+        # event track 
+        BoxType.EMSG.value: DASHEventMessageBox,
+        BoxType.EMBE.value: EventMessageBoxEmptyCue,
+        BoxType.EMEB.value: EventMessageEmptyBox, 
+        BoxType.EMIB.value: EventMessageInstanceBox,
+        BoxType.URIM.value: URIMetaSampleEntry,
+        BoxType.EVTE.value: EventMessageSampleEntry,
+        BoxType.URI_.value: URIBox, 
+        BoxType.URI.value: URIBox, 
+        BoxType.URII.value: URIInitBox,
+
+        # subtitle 
+        BoxType.NMHD.value: NullMediaHeaderBox, 
+        BoxType.STHD.value: SubtitleMediaHeaderBox,
+        BoxType.VTTC.value: WebVTTConfigurationBox,
+        BoxType.VLAB.value: WebVTTSourceLabelBox, 
+
+        # VTT internal
+        BoxType.VTTc.value : VTTCueBox,
+        BoxType.VSID.value : CueSourceIDBox, 
+        BoxType.CTIM.value : CueTimeBox,
+        BoxType.IDEN.value : CueIDBox,
+        BoxType.STTG.value : CueSettingsBox,
+        BoxType.PAY1.value : CuePayLoadBox,
+        BoxType.VTTE.value : VTTEmptyCueBox,
+        BoxType.VTTA.value : VTTAdditionalTextBox
     }, default=RawBox)),
     "end" / Tell
 ))
